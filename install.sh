@@ -23,6 +23,29 @@ source_line='[[ -r ~/.config/zsh/jjhelp.zsh ]] && source ~/.config/zsh/jjhelp.zs
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 
+# Copy $1 to $2, unless $2 is already a symlink resolving to $1 — some people
+# (the author included) symlink these straight into a clone so edits land in
+# the repo. Blindly installing over that would silently replace the symlink
+# with a copy and start a fork nobody asked for.
+install_file() {
+  local src=$1 dst=$2
+  if [ -L "$dst" ]; then
+    local target
+    target=$(cd -- "$(dirname -- "$dst")" && readlink "$dst")
+    case $target in
+      /*) : ;;
+       *) target="$(cd -- "$(dirname -- "$dst")" && pwd)/$target" ;;
+    esac
+    if [ "$target" -ef "$src" ] 2>/dev/null; then
+      say "left symlink $dst alone (already points at this checkout)"
+      return
+    fi
+    warn "$dst is a symlink to $target — replacing it with a regular file"
+  fi
+  install -m 0644 "$src" "$dst"
+  say "installed $dst"
+}
+
 uninstall() {
   rm -f "$zsh_dir/jjhelp.zsh" "$jj_conf_d/50-jjhelp.toml"
   say "removed jjhelp.zsh and 50-jjhelp.toml"
@@ -42,18 +65,16 @@ command -v jj  >/dev/null 2>&1 || warn "jj not found — the chart will render, 
 
 # --- files ------------------------------------------------------------------
 mkdir -p "$zsh_dir" "$jj_conf_d"
-install -m 0644 "$src_dir/jjhelp.zsh" "$zsh_dir/jjhelp.zsh"
-say "installed $zsh_dir/jjhelp.zsh"
+install_file "$src_dir/jjhelp.zsh" "$zsh_dir/jjhelp.zsh"
 
 # conf.d is additive: jj loads every .toml there after config.toml, so this
 # never rewrites a config you already have.
-if [ -e "$jj_conf_d/50-jjhelp.toml" ] && \
+if [ -f "$jj_conf_d/50-jjhelp.toml" ] && [ ! -L "$jj_conf_d/50-jjhelp.toml" ] && \
    ! cmp -s "$src_dir/jj/50-jjhelp.toml" "$jj_conf_d/50-jjhelp.toml"; then
   cp -- "$jj_conf_d/50-jjhelp.toml" "$jj_conf_d/50-jjhelp.toml.bak"
   say "backed up your existing 50-jjhelp.toml to 50-jjhelp.toml.bak"
 fi
-install -m 0644 "$src_dir/jj/50-jjhelp.toml" "$jj_conf_d/50-jjhelp.toml"
-say "installed $jj_conf_d/50-jjhelp.toml"
+install_file "$src_dir/jj/50-jjhelp.toml" "$jj_conf_d/50-jjhelp.toml"
 
 # Warn rather than fail: an alias you already define wins over ours only if it
 # sits in a conf.d file sorting after 50-, which is worth knowing about.
