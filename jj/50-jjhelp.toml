@@ -1,0 +1,85 @@
+# jjhelp — the jj aliases the chart documents.
+#
+# Installed to ~/.config/jj/conf.d/50-jjhelp.toml. jj loads every .toml in
+# conf.d/ lexicographically AFTER config.toml, so this file adds to your setup
+# without touching it — and, being loaded later, wins on any key you also
+# define in config.toml. Nothing personal lives here: no [user], no --scope.
+#
+# jjhelp's flows and git→jj table tell you to run `jj cl`, `jj evolve`,
+# `jj tug`, `jj sync`. Those are these aliases, not stock jj — which is why the
+# chart ships with them rather than describing commands you don't have.
+
+[aliases]
+
+# --- getting a repo ---------------------------------------------------------
+clone = ['git', 'clone']
+# Colocated: a .git alongside .jj, so git tooling keeps working.
+init = ['git', 'init', '--git-repo=.']
+
+# --- the everyday loop ------------------------------------------------------
+# Advance the closest bookmark(s) to the working copy. Pass a name to move just
+# one — bare `tug` moves EVERY closest bookmark, which is rarely what you mean
+# on a branch that already has a push bookmark on it. Reads the
+# revsets.bookmark-advance-to setting below.
+tug = ['bookmark', 'advance']
+# Fetching never merges in jj, so this is always safe to run.
+sync = ['git', 'fetch', '--all-remotes']
+# The "merge" step: rebase onto the new trunk(). --skip-emptied drops changes
+# that landed upstream instead of leaving empty commits behind.
+evolve = ['rebase', '--skip-emptied', '-o', 'trunk()']
+# evolve, but for changes stranded just past the immutable boundary.
+pullup = ['evolve', '-s', 'stragglers']
+# `amend` for muscle memory coming from git.
+amend = ['squash']
+
+# --- looking around ---------------------------------------------------------
+xl = ['log', '-r', 'all()']
+pl = ['obslog', '-p']
+blame = ['file', 'annotate']
+mdiff = ['diff', '--from', 'trunk()']
+ls = ['diff', '--name-only']
+
+# --- publishing -------------------------------------------------------------
+# The PR path: push the latest described, non-empty change and let jj invent
+# the bookmark. Depends on the pushable_on_branch revset alias below.
+cl = ['git', 'push', '-c', 'pushable_on_branch']
+push = ['git', 'push', '--all']
+remote = ['git', 'remote']
+
+# --- misc -------------------------------------------------------------------
+configure = ['config', 'edit', '--repo']
+# Move up/down the stack, editing as you go.
+'..' = ['prev', '-e']
+',,' = ['next', '-e']
+
+# Add a fork remote interactively and point pushes at it.
+fork = ['util', 'exec', '--', 'sh', '-c', '''
+set -e
+echo -n "remote for fork: "
+read new_remote
+if [ -n "$new_remote" ]; then
+  jj git remote add mine "${new_remote}"
+  jj config set --repo git.push mine
+fi
+jj git remote list
+''']
+
+[revset-aliases]
+
+# Changes just past the immutable boundary — what `pullup` rebases.
+stragglers = 'immutable()+ ~ immutable()'
+# The newest change on the current branch that is actually worth pushing:
+# described (not the empty default message) and not empty. This is what makes
+# `cl` skip your scratch working copy and push the real change.
+pushable_on_branch = 'latest(trunk()::@ ~ description(exact:"") ~ empty())'
+
+[revsets]
+
+# Load-bearing, not cosmetic: `tug` is `bookmark advance`, which reads this
+# setting to decide what to advance to. Without it, `tug` and `cl` disagree
+# about which change is "the" one.
+bookmark-advance-to = 'pushable_on_branch'
+
+# Default `jj log`: your work and its context, not the entire repo.
+# Use `jj xl` when you want everything.
+log = '@ | ancestors(trunk()..(visible_heads() & mine()), 2) | trunk()'
