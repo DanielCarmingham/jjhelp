@@ -55,9 +55,12 @@ impl Action {
             .collect::<Vec<_>>()
             .join(" ");
         let visible = format!(
-            "{}  {}  {}",
+            "{} {} {}  {}  {} {}",
+            ansi("36", ""),
+            action_icon(self),
             ansi("1", self.title),
             ansi("36", &shortcut_summary(self)),
+            ansi("2", "󰓦"),
             ansi("2", &tags)
         );
 
@@ -69,30 +72,44 @@ impl Action {
 
     pub fn preview(&self) -> String {
         let mut out = String::new();
-        out.push_str(&ansi("1;36", self.title));
+        out.push_str(&ansi(
+            "36",
+            &format!(
+                "╔═ {} {} ════════════════════════════",
+                action_icon(self),
+                self.title
+            ),
+        ));
         out.push_str("\n\n");
-        out.push_str(&ansi("1;34", "WHY"));
+        out.push_str(&ansi("1;34", "◆ WHY"));
         out.push_str("\n  ");
         out.push_str(self.description);
         out.push_str("\n\n");
-        out.push_str(&ansi("1;34", "STEPS"));
+        out.push_str(&ansi("1;34", "◆ STEPS"));
         out.push('\n');
 
         for (index, step) in self.steps.iter().enumerate() {
             out.push_str(&format!(
-                "  {:>2}  {}\n",
+                "  {:>2}  {} {}\n",
                 index + 1,
+                ansi("36", step_icon(step)),
                 ansi("1", step.shortcut)
             ));
             if let Some(expanded) = step.expanded {
-                out.push_str(&format!("      {}\n", ansi("2", expanded)));
+                out.push_str(&format!(
+                    "      {} {}\n",
+                    ansi("2", "↳"),
+                    ansi("2", expanded)
+                ));
             }
             out.push('\n');
         }
 
-        out.push_str(&ansi("1;34", "INSERTS"));
+        out.push_str(&ansi("1;34", "◆ INSERTS"));
         out.push_str("\n  ");
-        out.push_str(&ansi("1", &self.shortcut_command()));
+        out.push_str(&ansi("1", &format!(" {} ", self.shortcut_command())));
+        out.push('\n');
+        out.push_str(&ansi("36", "╚══════════════════════════════════════"));
         out
     }
 
@@ -111,11 +128,65 @@ fn shortcut_summary(action: &Action) -> String {
         .iter()
         .map(|step| step.shortcut)
         .collect::<Vec<_>>()
-        .join(" · ")
+        .join("  ")
 }
 
 fn ansi(code: &str, text: &str) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
+}
+
+fn action_icon(action: &Action) -> &'static str {
+    if action
+        .tags
+        .iter()
+        .any(|tag| *tag == "push" || *tag == "publish")
+    {
+        "󰊢"
+    } else if action
+        .tags
+        .iter()
+        .any(|tag| *tag == "fetch" || *tag == "sync")
+    {
+        "󰜉"
+    } else if action
+        .tags
+        .iter()
+        .any(|tag| *tag == "undo" || *tag == "recover")
+    {
+        "󰕌"
+    } else if action
+        .tags
+        .iter()
+        .any(|tag| *tag == "status" || *tag == "files")
+    {
+        "󰈙"
+    } else if action.tags.iter().any(|tag| *tag == "bookmark") {
+        ""
+    } else if action.tags.iter().any(|tag| *tag == "split") {
+        "󰤌"
+    } else {
+        "◆"
+    }
+}
+
+fn step_icon(step: &Step) -> &'static str {
+    if step.shortcut.contains("sync") {
+        "󰜉"
+    } else if step.shortcut.contains("gp") || step.shortcut.contains("push") {
+        "󰊢"
+    } else if step.shortcut.contains("tug") || step.shortcut.contains("bookmark") {
+        ""
+    } else if step.shortcut.contains("undo") {
+        "󰕌"
+    } else if step.shortcut.contains("split") || step.shortcut.contains("jjsp") {
+        "󰤌"
+    } else if step.shortcut.contains("diff") || step.shortcut.contains("status") {
+        "󰈙"
+    } else if step.shortcut.contains("desc") || step.shortcut.contains("dmsg") {
+        "󰦨"
+    } else {
+        "◆"
+    }
 }
 
 const LAND_MAIN_PARAMS: &[ParamSpec] = &[ParamSpec::Bookmark {
@@ -347,6 +418,28 @@ mod tests {
     }
 
     #[test]
+    fn candidate_row_uses_ornate_symbols_and_action_icons() {
+        let action = actions()
+            .into_iter()
+            .find(|a| a.id == "land-main")
+            .expect("land-main action");
+        let bookmark_action = actions()
+            .into_iter()
+            .find(|a| a.id == "move-bookmark")
+            .expect("move-bookmark action");
+
+        let row = action.candidate_row();
+        let fields = row.split('\t').collect::<Vec<_>>();
+        let bookmark_row = bookmark_action.candidate_row();
+
+        assert!(fields[1].contains("󰊢"));
+        assert!(fields[1].contains(""));
+        assert!(fields[1].contains(""));
+        assert!(fields[1].contains("󰓦"));
+        assert!(bookmark_row.contains(""));
+    }
+
+    #[test]
     fn preview_teaches_shortcuts_and_expanded_commands() {
         let action = actions()
             .into_iter()
@@ -372,11 +465,31 @@ mod tests {
 
         let preview = action.preview();
 
-        assert!(preview.contains("\x1b[1;36mland current work on main\x1b[0m"));
-        assert!(preview.contains("\x1b[1;34mWHY\x1b[0m"));
-        assert!(preview.contains("\x1b[1;34mSTEPS\x1b[0m"));
-        assert!(preview.contains("\x1b[1;34mINSERTS\x1b[0m"));
+        assert!(preview.contains("land current work on main"));
+        assert!(preview.contains("\x1b[1;34m◆ WHY\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34m◆ STEPS\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34m◆ INSERTS\x1b[0m"));
         assert!(preview.contains("\x1b[1mjj sync\x1b[0m"));
         assert!(preview.contains("\x1b[2mjj git fetch --all-remotes\x1b[0m"));
+    }
+
+    #[test]
+    fn preview_uses_ornate_frames_icons_and_dividers() {
+        let action = actions()
+            .into_iter()
+            .find(|a| a.id == "land-main")
+            .expect("land-main action");
+
+        let preview = action.preview();
+
+        assert!(preview.contains("╔"));
+        assert!(preview.contains("╚"));
+        assert!(preview.contains(""));
+        assert!(preview.contains(""));
+        assert!(preview.contains("󰊢"));
+        assert!(preview.contains("󰜉"));
+        assert!(preview.contains(""));
+        assert!(preview.contains("↳"));
+        assert!(preview.contains("◆"));
     }
 }

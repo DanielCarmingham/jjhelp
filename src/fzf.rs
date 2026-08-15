@@ -98,16 +98,16 @@ fn base_palette_args(prompt: &str, use_popup: bool) -> Vec<String> {
         prompt.to_string(),
         "--layout=reverse".to_string(),
         "--border=double".to_string(),
-        "--border-label= jj palette ".to_string(),
+        "--border-label=  jj palette  ".to_string(),
         "--border-label-pos=2".to_string(),
         "--margin=1,2".to_string(),
         "--padding=1,2".to_string(),
         "--info=inline-right".to_string(),
         "--highlight-line".to_string(),
         "--gap".to_string(),
-        "--pointer=›".to_string(),
-        "--marker=+".to_string(),
-        "--preview-label= command ".to_string(),
+        "--pointer=".to_string(),
+        "--marker=◆".to_string(),
+        "--preview-label=  command  ".to_string(),
         "--preview-label-pos=2".to_string(),
         "--preview-window".to_string(),
         "right:55%,border-double,wrap".to_string(),
@@ -146,7 +146,7 @@ mod tests {
         assert!(args.contains(&"--border=double".to_string()));
         assert!(args.contains(&"--layout=reverse".to_string()));
         assert!(args.contains(&"--height=70%".to_string()));
-        assert!(args.contains(&"--pointer=›".to_string()));
+        assert!(args.contains(&"--pointer=".to_string()));
     }
 
     #[test]
@@ -154,12 +154,13 @@ mod tests {
         let args = action_palette_args_with_popup(Some("jjp-bin --preview {1}"), None, false);
 
         assert!(args.contains(&"--border=double".to_string()));
-        assert!(args.contains(&"--border-label= jj palette ".to_string()));
+        assert!(args.contains(&"--border-label=  jj palette  ".to_string()));
         assert!(args.contains(&"--padding=1,2".to_string()));
         assert!(args.contains(&"--margin=1,2".to_string()));
         assert!(args.contains(&"--highlight-line".to_string()));
         assert!(args.contains(&"--gap".to_string()));
-        assert!(args.contains(&"--preview-label= command ".to_string()));
+        assert!(args.contains(&"--pointer=".to_string()));
+        assert!(args.contains(&"--preview-label=  command  ".to_string()));
         assert!(args
             .windows(2)
             .any(|pair| pair == ["--preview-window", "right:55%,border-double,wrap"]));
