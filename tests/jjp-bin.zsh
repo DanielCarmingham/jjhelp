@@ -18,7 +18,7 @@ trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/bin/fzf" <<'FZF'
 #!/bin/sh
 case "$*" in
-  *"--prompt action>"*)
+  *"--prompt jj › "*)
     cat >/dev/null
     if [ "${JJP_FAKE_ACTION:-land-main}" = "push-bookmark" ]; then
       printf 'push-bookmark\tpush bookmark\n'
