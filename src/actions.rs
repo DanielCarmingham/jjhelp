@@ -54,39 +54,68 @@ impl Action {
             .filter_map(|step| step.expanded)
             .collect::<Vec<_>>()
             .join(" ");
+        let visible = format!(
+            "{}  {}  {}",
+            ansi("1", self.title),
+            ansi("36", &shortcut_summary(self)),
+            ansi("2", &tags)
+        );
 
         format!(
             "{}\t{}\t{}\t{}\t{}\t{}",
-            self.id, self.title, tags, shortcuts, expanded, self.description
+            self.id, visible, tags, shortcuts, expanded, self.description
         )
     }
 
     pub fn preview(&self) -> String {
         let mut out = String::new();
-        out.push_str(self.title);
-        out.push_str("\n\nWhy:\n  ");
+        out.push_str(&ansi("1;36", self.title));
+        out.push_str("\n\n");
+        out.push_str(&ansi("1;34", "WHY"));
+        out.push_str("\n  ");
         out.push_str(self.description);
-        out.push_str("\n\nSteps:\n");
+        out.push_str("\n\n");
+        out.push_str(&ansi("1;34", "STEPS"));
+        out.push('\n');
 
         for (index, step) in self.steps.iter().enumerate() {
-            out.push_str(&format!("  {}. {}\n", index + 1, step.shortcut));
+            out.push_str(&format!(
+                "  {:>2}  {}\n",
+                index + 1,
+                ansi("1", step.shortcut)
+            ));
             if let Some(expanded) = step.expanded {
-                out.push_str(&format!("     {}\n", expanded));
+                out.push_str(&format!("      {}\n", ansi("2", expanded)));
             }
             out.push('\n');
         }
 
-        out.push_str("Will insert:\n  ");
-        out.push_str(
-            &self
-                .steps
-                .iter()
-                .map(|step| step.shortcut)
-                .collect::<Vec<_>>()
-                .join(" && "),
-        );
+        out.push_str(&ansi("1;34", "INSERTS"));
+        out.push_str("\n  ");
+        out.push_str(&ansi("1", &self.shortcut_command()));
         out
     }
+
+    fn shortcut_command(&self) -> String {
+        self.steps
+            .iter()
+            .map(|step| step.shortcut)
+            .collect::<Vec<_>>()
+            .join(" && ")
+    }
+}
+
+fn shortcut_summary(action: &Action) -> String {
+    action
+        .steps
+        .iter()
+        .map(|step| step.shortcut)
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn ansi(code: &str, text: &str) -> String {
+    format!("\x1b[{code}m{text}\x1b[0m")
 }
 
 const LAND_MAIN_PARAMS: &[ParamSpec] = &[ParamSpec::Bookmark {
@@ -297,6 +326,27 @@ mod tests {
     }
 
     #[test]
+    fn candidate_row_styles_visible_content_but_keeps_hidden_search_fields() {
+        let action = actions()
+            .into_iter()
+            .find(|a| a.id == "land-main")
+            .expect("land-main action");
+
+        let row = action.candidate_row();
+        let fields = row.split('\t').collect::<Vec<_>>();
+
+        assert_eq!(fields[0], "land-main");
+        assert!(fields[1].contains("\x1b[1m"));
+        assert!(fields[1].contains("land current work on main"));
+        assert!(fields[1].contains("jj sync"));
+        assert!(fields[1].contains("push publish done"));
+        assert_eq!(fields[2], "push publish done main bookmark");
+        assert!(fields[3].contains("jj tug {bookmark}"));
+        assert!(fields[4].contains("jj bookmark advance {bookmark}"));
+        assert!(fields[5].contains("Move main to the current change"));
+    }
+
+    #[test]
     fn preview_teaches_shortcuts_and_expanded_commands() {
         let action = actions()
             .into_iter()
@@ -305,11 +355,28 @@ mod tests {
 
         let preview = action.preview();
 
-        assert!(preview.contains("Why:"));
+        assert!(preview.contains("WHY"));
         assert!(preview.contains("jj sync"));
         assert!(preview.contains("jj git fetch --all-remotes"));
         assert!(preview.contains("jj tug {bookmark}"));
         assert!(preview.contains("jj bookmark advance {bookmark}"));
-        assert!(preview.contains("Will insert:"));
+        assert!(preview.contains("INSERTS"));
+    }
+
+    #[test]
+    fn preview_uses_ansi_sections_and_command_hierarchy() {
+        let action = actions()
+            .into_iter()
+            .find(|a| a.id == "land-main")
+            .expect("land-main action");
+
+        let preview = action.preview();
+
+        assert!(preview.contains("\x1b[1;36mland current work on main\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34mWHY\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34mSTEPS\x1b[0m"));
+        assert!(preview.contains("\x1b[1;34mINSERTS\x1b[0m"));
+        assert!(preview.contains("\x1b[1mjj sync\x1b[0m"));
+        assert!(preview.contains("\x1b[2mjj git fetch --all-remotes\x1b[0m"));
     }
 }

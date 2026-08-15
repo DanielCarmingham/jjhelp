@@ -93,6 +93,7 @@ fn base_palette_args(prompt: &str, use_popup: bool) -> Vec<String> {
     let mut args = vec![
         "--delimiter".to_string(),
         "\t".to_string(),
+        "--ansi".to_string(),
         "--prompt".to_string(),
         prompt.to_string(),
         "--layout=reverse".to_string(),
@@ -137,6 +138,7 @@ mod tests {
             action_palette_args_with_popup(Some("jjp-bin --preview {1}"), Some("land"), false);
 
         assert!(args.contains(&"--prompt".to_string()));
+        assert!(args.contains(&"--ansi".to_string()));
         assert!(args.contains(&"jj › ".to_string()));
         assert!(!args.contains(&"action>".to_string()));
         assert!(args.windows(2).any(|pair| pair == ["--with-nth", "2"]));
