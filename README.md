@@ -19,12 +19,21 @@ can't drift from reality the way a hand-maintained cheatsheet does.
   ...
 
 ── flows ───────────────────────────────────────
-  land on main  jj sync                      — fetch FIRST — skipping this gets the push rejected as "stale info"
+  happy path    jjnt                       — start a change off trunk() — no branch needed, name it later or never
+                (edit files)               — snapshotted automatically — no add, no stage, no stash
+                jjdmsg "…"                 — names the change you are ON (jj commit = describe + new)
+                jj sync                    — fetch FIRST — skipping this gets the push rejected as "stale info"
                 jj evolve                    — rebase onto the new trunk(); this is the "merge", history stays linear
-                jj tug main                  — name it — bare tug advances every closest bookmark, not just main
-                jj git push --bookmark main  — name it — a bare `jj git push` often finds nothing to push
+                jj tug main                  — move main here — bare tug advances every closest bookmark, not just main
+                jjgp --bookmark main         — push the named bookmark — a bare `jjgp` often finds nothing to push
 
-  ! don't mix flows on one change: after `cl`, tug stops advancing main
+  catch up      jj sync                    — fetch remote changes; fetching never merges in jj
+                jj evolve                  — rebase your work onto the new trunk(), dropping emptied changes
+
+  undo mistake  jj op log                  — find the operation you want to undo
+                jj undo                    — undo the last operation; pass an operation id to undo a specific one
+
+  ! direct-to-main path: tug main moves main; cl creates a separate push bookmark
 
 60 shortcuts · 7 extras, see jjhelp -p
 ```
@@ -35,9 +44,13 @@ can't drift from reality the way a hand-maintained cheatsheet does.
 | -------------- | ---------------------------------------------------------------- |
 | `jjhelp`       | the alias chart, plus the flows                                  |
 | `jjhelp -f`    | just the flows — recipes where the *ordering* is the point       |
+| `jjhelp -F`    | just the flows, with known shortcuts expanded inline             |
 | `jjhelp -g`    | a git → jj translation table, with the foot-guns marked          |
 | `jjhelp -p`    | also list optional extras worth stealing                          |
 | `jjhelp push`  | only rows whose name, body, or description matches `push`        |
+| `jjp`          | open the intent-first fzf command palette                         |
+| `jjp land`     | open the palette with an initial search query                     |
+| `jjp --print land-main` | print a command without opening fzf                     |
 
 The `-g` table is the one to read first if you're coming from git. Every `!` note in it
 is something a scratch repo actually produced, not a remembered rule.
@@ -53,19 +66,39 @@ cd jjhelp
 Then restart your shell and run `jjhelp`. Re-run `./install.sh` any time to update;
 it's idempotent. `./install.sh --uninstall` removes it.
 
-The installer places two files and adds one line to your `.zshrc`:
+The installer places three files and adds one line to your `.zshrc`:
 
 | File                                 | What it is                                  |
 | ------------------------------------ | ------------------------------------------- |
 | `~/.config/zsh/jjhelp.zsh`           | the chart itself                            |
 | `~/.config/jj/conf.d/50-jjhelp.toml` | the jj aliases the chart documents          |
+| `~/.local/bin/jjp-bin`               | the Rust helper behind the `jjp` palette    |
 
 ### Requirements
 
 - **zsh.** jjhelp uses zsh-specific parameter expansion throughout; there's no bash port.
 - **jj**, obviously. Without it the chart still renders, just without the config rows.
+- **fzf.** `jjp` uses fzf for its interactive command palette.
+- **Rust/Cargo.** Required by `./install.sh` to build `jjp-bin` from source.
 - **The oh-my-zsh `jj` plugin** is optional but strongly recommended — it supplies about
   38 of the chart's rows. Add `jj` to your `plugins=(...)` line.
+
+## Interactive palette
+
+`jjp` is an intent-first command palette for jj. It lets you search for what you
+mean, preview the shortcut and expanded commands, fill simple parameters like a
+bookmark, and insert the final command into your shell prompt.
+
+It does **not** run the command for you. The zsh wrapper calls `jjp-bin`, then
+uses `print -z` so you can read, edit, and press Enter yourself.
+
+Examples:
+
+```sh
+jjp
+jjp land
+jjp --print land-main
+```
 
 ### Why it's sourced instead of a script on `PATH`
 

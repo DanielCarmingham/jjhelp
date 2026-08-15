@@ -1,0 +1,8 @@
+[package]
+name = "jjhelp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "jjp-bin"
+path = "src/main.rs"

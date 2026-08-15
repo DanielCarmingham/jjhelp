@@ -13,6 +13,8 @@
 #
 #   jjhelp           installed shortcuts
 #   jjhelp push      rows whose name, body, or gloss matches "push"
+#   jjhelp -f        just the flows
+#   jjhelp -F        just the flows, with shortcuts expanded inline
 #   jjhelp -p        also list optional extras you might want to install
 #
 # Everything is written to stdout rather than stderr, so `jjhelp | grep` and
@@ -52,6 +54,7 @@ typeset -gA _jjhelp_gloss=(
   stragglers          'mutable changes sitting directly on immutable history'
   pushable_on_branch  'latest described, non-empty change between trunk() and @'
 )
+typeset -gA _jjhelp_shell_defs _jjhelp_config_defs
 
 # Optional extras, shown by `jjhelp -p`. These are NOT installed by jjhelp —
 # they're good ideas worth stealing if they fit how you work. Borrowed from
@@ -100,28 +103,64 @@ _jjhelp_pad() {
   print -rn -- "$1${(l:$n:: :)}"
 }
 
+_jjhelp_expand_flow_step() {
+  emulate -L zsh
+  setopt local_options extended_glob
+
+  local step=$1
+
+  if [[ $step == *' && '* ]]; then
+    local -a parts expanded_parts
+    local part expanded
+    parts=( ${(ps: && :)step} )
+    for part in $parts; do
+      expanded=$(_jjhelp_expand_flow_step "$part")
+      expanded_parts+=( "${expanded:-$part}" )
+    done
+    print -rn -- "${(j: && :)expanded_parts}"
+    return
+  fi
+
+  local head rest alias_name expanded
+  head=${step%% *}
+  if [[ -n ${_jjhelp_shell_defs[$head]:-} ]]; then
+    rest=${step#$head}
+    print -rn -- "${_jjhelp_shell_defs[$head]}$rest"
+    return
+  fi
+
+  if [[ $step == jj\ * ]]; then
+    rest=${step#jj }
+    alias_name=${rest%% *}
+    [[ $alias_name == "$rest" ]] && rest='' || rest=${rest#$alias_name}
+    if [[ -n ${_jjhelp_config_defs[$alias_name]:-} ]]; then
+      print -rn -- "${_jjhelp_config_defs[$alias_name]}$rest"
+      return
+    fi
+  fi
+}
+
 # Recipes, not aliases — the ordering is the load-bearing part. Verified against
 # a scratch colocated repo with a real remote; the notes record what actually
 # goes wrong when a step is skipped or reordered.
 # Format: flow <TAB> step <TAB> note
 typeset -ga _jjhelp_flows=(
-  $'happy path\tjj new main\tstart a change off main — no branch needed, name it later or never'
+  $'happy path\tjjnt\tstart a change off trunk() — no branch needed, name it later or never'
   $'happy path\t(edit files)\tsnapshotted automatically — no add, no stage, no stash'
-  $'happy path\tjj describe -m "…"\tnames the change you are ON (jj commit = describe + new)'
-  $'happy path\tjj cl\tpush it — the bookmark is invented for you'
-  $'land on main\tjj sync\tfetch FIRST — skipping this gets the push rejected as "stale info"'
-  $'land on main\tjj evolve\trebase onto the new trunk(); this is the "merge", history stays linear'
-  $'land on main\tjj tug main\tname it — bare tug advances every closest bookmark, not just main'
-  $'land on main\tjj git push --bookmark main\tname it — a bare `jj git push` often finds nothing to push'
-  $'open a PR\tjj cl\tpush latest real change as @PUSHPFX@<id>, bookmark auto-created'
-  $'open a PR\tgh pr create\t'
-  $'open a PR\tjj sync && jj evolve\tafter it merges, to pick up the new trunk()'
+  $'happy path\tjjdmsg "…"\tnames the change you are ON (jj commit = describe + new)'
+  $'happy path\tjj sync\tfetch FIRST — skipping this gets the push rejected as "stale info"'
+  $'happy path\tjj evolve\trebase onto the new trunk(); this is the "merge", history stays linear'
+  $'happy path\tjj tug main\tmove main here — bare tug advances every closest bookmark, not just main'
+  $'happy path\tjjgp --bookmark main\tpush the named bookmark — a bare `jjgp` often finds nothing to push'
+  $'catch up\tjj sync\tfetch remote changes; fetching never merges in jj'
+  $'catch up\tjj evolve\trebase your work onto the new trunk(), dropping emptied changes'
+  $'undo mistake\tjj op log\tfind the operation you want to undo'
+  $'undo mistake\tjj undo\tundo the last operation; pass an operation id to undo a specific one'
 )
 
-# Don't mix the two flows on one change: once `cl` puts a push bookmark on it,
-# that becomes the closest bookmark and `tug` either moves it instead of main or
-# reports "No bookmarks to update" — silently leaving main behind. Landing that
-# change on main afterwards needs an explicit `jj bookmark move main --to @`.
+# For the direct-to-main path, move `main` with `tug main` and push that bookmark.
+# `jj cl` creates a separate push bookmark instead; useful for review workflows,
+# but not for making main point at the current change.
 # git -> jj translation, shown by `jjhelp -g`. Every "!" note below is something
 # a scratch-repo test actually produced, not a remembered rule.
 # Format: group <TAB> git <TAB> jj <TAB> note ("" for none)
@@ -146,21 +185,25 @@ typeset -ga _jjhelp_rosetta=(
   $'conflicts\tgit mergetool\tjj resolve  (or edit markers, then jj squash)\tresolve whenever you like — nothing is blocked meanwhile'
 )
 
-typeset -g _jjhelp_flows_footnote='don'\''t mix flows on one change: after `cl`, tug stops advancing main'
+typeset -g _jjhelp_flows_footnote='direct-to-main path: tug main moves main; cl creates a separate push bookmark'
 
 jjhelp() {
   emulate -L zsh
   setopt local_options extended_glob no_nomatch
 
-  local show_proposed=0 show_rosetta=0 only_flows=0 filter=''
+  local show_proposed=0 show_rosetta=0 only_flows=0 expand_flows=0 filter=''
   while (( $# )); do
     case $1 in
       -p|--proposed) show_proposed=1 ;;
       -g|--git)      show_rosetta=1 ;;
       -f|--flows)    only_flows=1 ;;
+      -F|--flows-expanded)
+        only_flows=1
+        expand_flows=1 ;;
       -h|--help)
-        print -r -- 'jjhelp [-f|--flows] [-g|--git] [-p|--proposed] [filter]'
+        print -r -- 'jjhelp [-f|--flows] [-F|--flows-expanded] [-g|--git] [-p|--proposed] [filter]'
         print -r -- '  -f   just the flows (recipes), without the alias chart'
+        print -r -- '  -F   flows with each shortcut expanded where jjhelp can resolve it'
         print -r -- '  -g   git -> jj translation table, with notes and foot-guns'
         print -r -- '  -p   also list borrowed aliases we have not installed'
         print -r -- '  filter   show only rows matching this text'
@@ -219,16 +262,23 @@ jjhelp() {
   # Rows are "section<TAB>name<TAB>body<TAB>gloss"; sections render in this order.
   local -a rows sections
   sections=(bookmarks changes log git workspaces other 'config aliases' revsets)
+  _jjhelp_shell_defs=()
+  _jjhelp_config_defs=()
 
   # --- shell aliases ------------------------------------------------------
   # Skipped wholesale for -f: the flows are static, so there's no reason to
   # shell out to jj twice just to throw the rows away.
   local line n b sect
   local -i shell_alias_rows=0
-  for line in ${(f)"$( (( only_flows )) || alias -m 'jj*' 'lj' 2>/dev/null)"}; do
+  for line in ${(f)"$( (( only_flows && ! expand_flows )) || alias -m 'jj*' 'lj' 2>/dev/null)"}; do
     [[ -n $line ]] || continue
     n=${line%%=*}
     b=${(Q)${line#*=}}
+    _jjhelp_shell_defs[$n]=$b
+    if (( only_flows )); then
+      (( shell_alias_rows++ ))
+      continue
+    fi
     case $b in
       'jj bookmark'*)          sect=bookmarks ;;
       'jj git'*)               sect=git ;;
@@ -245,7 +295,7 @@ jjhelp() {
   # A single template line per entry, terminated by a sentinel, because values
   # like the `fork` alias are multi-line TOML strings that would otherwise
   # scramble any line-oriented parse.
-  if (( $+commands[jj] && ! only_flows )); then
+  if (( $+commands[jj] && (! only_flows || expand_flows) )); then
     local raw rec parts
     local -a recs part_arr
 
@@ -264,13 +314,20 @@ jjhelp() {
         b=${${b#\[}%\]}
         part_arr=(${(s:, :)b})
         part_arr=(${part_arr//\'/})
+        part_arr=(${part_arr//\"/})
         b="jj ${(j: :)part_arr}"
       fi
+      _jjhelp_config_defs[$n]=$b
+      (( only_flows )) && continue
       rows+=( 'config aliases'$'\t'"$n"$'\t'"$b"$'\t'"${_jjhelp_gloss[$n]:-}" )
     done
 
+    if (( only_flows )); then
+      raw=''
+    else
     raw=$(command jj --no-pager config list revset-aliases \
             -T 'name ++ "\t" ++ value ++ "@@E@@\n"' 2>/dev/null)
+    fi
     for rec in ${(ps:@@E@@:)raw}; do
       rec=${rec##$'\n'##}
       [[ -n $rec ]] || continue
@@ -348,12 +405,19 @@ jjhelp() {
   # --- flows --------------------------------------------------------------
   if (( ${#flow_names} )); then
     nw=0 bw=0
+    local display_step expanded_step
     for fname in $flow_names; do
       (( ${#fname} > nw )) && nw=${#fname}
       for line in $_jjhelp_flows; do
         cells=( ${(ps:\t:)line} )
         [[ ${cells[1]} == $fname ]] || continue
-        (( ${#cells[2]} > bw )) && bw=${#cells[2]}
+        display_step=${cells[2]}
+        if (( expand_flows )); then
+          expanded_step=$(_jjhelp_expand_flow_step "$display_step")
+          [[ -n $expanded_step && $expanded_step != "$display_step" ]] && \
+            display_step="$display_step = $expanded_step"
+        fi
+        (( ${#display_step} > bw )) && bw=${#display_step}
       done
     done
     print -r -- "${head}── flows ${off}${dim}${(l:39::─:)}${off}"
@@ -368,10 +432,16 @@ jjhelp() {
         else
           print -rn -- "  $(_jjhelp_pad '' $nw)  "
         fi
+        display_step=${cells[2]}
+        if (( expand_flows )); then
+          expanded_step=$(_jjhelp_expand_flow_step "$display_step")
+          [[ -n $expanded_step && $expanded_step != "$display_step" ]] && \
+            display_step="$display_step = $expanded_step"
+        fi
         if [[ -n ${cells[3]:-} ]]; then
-          print -r -- "$(_jjhelp_pad "${cells[2]}" $bw)  ${dim}— ${cells[3]}${off}"
+          print -r -- "$(_jjhelp_pad "$display_step" $bw)  ${dim}— ${cells[3]}${off}"
         else
-          print -r -- "${cells[2]}"
+          print -r -- "$display_step"
         fi
       done
       print
@@ -406,6 +476,10 @@ jjhelp() {
   # --- footer -------------------------------------------------------------
   # -f showed no aliases, so a shortcut tally would be a lie ("0 shortcuts").
   if (( only_flows )); then
+    if (( expand_flows )); then
+      print -r -- "${dim}flows expanded · jjhelp -f for shortcuts only · jjhelp for the alias chart${off}"
+      return 0
+    fi
     print -r -- "${dim}flows only · jjhelp for the alias chart · jjhelp -g for git→jj${off}"
     return 0
   fi
@@ -419,4 +493,12 @@ jjhelp() {
   # rendering a conspicuously short chart.
   (( shell_alias_rows )) || print -r -- \
     "${dim}no jj* shell aliases found — add \`jj\` to your oh-my-zsh plugins for ~38 more${off}"
+}
+
+jjp() {
+  emulate -L zsh
+  local cmd
+  cmd="$(jjp-bin "$@")" || return
+  [[ -n $cmd ]] || return 1
+  print -z "$cmd"
 }
